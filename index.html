@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#102a43">
+  <meta name="description" content="Rafiq Digital Survey CAD — জমি মাপা, CAD নকশা, GPS পয়েন্ট ও DXF রপ্তানি">
+  <title>Rafiq Digital Survey CAD</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand-mark">R</div>
+  <div class="brand-copy"><strong>Rafiq Digital Survey CAD</strong><small>Land Survey • CAD Drafting • Bangladesh</small></div>
+  <button id="installBtn" class="btn ghost" hidden>অ্যাপ ইনস্টল</button>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="side-title">প্রজেক্ট সেটিংস</div>
+    <label>প্রজেক্টের নাম<input id="projectName" value="নতুন জমির নকশা" maxlength="100"></label>
+    <div class="two">
+      <label>মৌজা<input id="mouza" placeholder="যেমন: মির্জারকোট"></label>
+      <label>দাগ নম্বর<input id="dag" placeholder="দাগ নম্বর"></label>
+    </div>
+    <div class="two">
+      <label>খতিয়ান<input id="khatian" placeholder="খতিয়ান নম্বর"></label>
+      <label>জরিপ তারিখ<input id="surveyDate" type="date"></label>
+    </div>
+    <div class="side-title">পয়েন্ট যোগ করুন</div>
+    <p class="hint">ম্যানুয়াল পয়েন্টের X/Y মিটার হিসেবে দিন। GPS পয়েন্ট যোগ করলে প্রথম পয়েন্টকে স্থানীয় (0,0) ধরে আনুমানিক মিটার কোঅর্ডিনেট তৈরি হবে।</p>
+    <div class="two">
+      <label>X (মিটার)<input id="pointX" type="number" step="0.01" value="0"></label>
+      <label>Y (মিটার)<input id="pointY" type="number" step="0.01" value="0"></label>
+    </div>
+    <label>পয়েন্টের নাম<input id="pointLabel" placeholder="যেমন: A / উত্তর-পশ্চিম"></label>
+    <button id="addPointBtn" class="btn primary full">＋ ম্যানুয়াল পয়েন্ট যোগ</button>
+    <button id="gpsBtn" class="btn teal full">◎ বর্তমান GPS পয়েন্ট যোগ</button>
+    <div class="two">
+      <button id="undoBtn" class="btn ghost">↶ শেষ পয়েন্ট বাদ</button>
+      <button id="closeBtn" class="btn ghost">◇ সীমানা বন্ধ</button>
+    </div>
+    <div class="side-title">CAD টুলস</div>
+    <div class="tool-grid">
+      <button id="gridBtn" class="tool active">▦ গ্রিড</button>
+      <button id="labelsBtn" class="tool active">Aa লেবেল</button>
+      <button id="fitBtn" class="tool">⤢ ফিট ভিউ</button>
+      <button id="clearBtn" class="tool danger">মুছুন</button>
+    </div>
+    <div class="side-title">ফাইল ও রিপোর্ট</div>
+    <button id="saveBtn" class="btn primary full">▣ ডিভাইসে সেভ</button>
+    <button id="exportDxfBtn" class="btn full">⇩ DXF রপ্তানি</button>
+    <button id="exportCsvBtn" class="btn full">⇩ CSV পয়েন্ট তালিকা</button>
+    <button id="exportJsonBtn" class="btn full">⇩ JSON ব্যাকআপ</button>
+    <label class="file-label">JSON ব্যাকআপ খুলুন<input id="importJson" type="file" accept=".json,application/json"></label>
+    <button id="printBtn" class="btn ghost full">▤ রিপোর্ট / PDF প্রিন্ট</button>
+    <p id="status" class="status" role="status">প্রস্তুত। পয়েন্ট যোগ করে শুরু করুন।</p>
+  </aside>
+
+  <section class="workspace">
+    <div class="workspace-head">
+      <div><h1>Survey Drawing</h1><p id="drawingSub">2D জমির নকশা • স্থানীয় মিটার কোঅর্ডিনেট</p></div>
+      <div class="head-actions"><span class="live-dot"></span><span id="pointCount">0 পয়েন্ট</span></div>
+    </div>
+    <div class="canvas-wrap">
+      <svg id="cadCanvas" viewBox="0 0 1000 650" role="img" aria-label="জমির CAD নকশা">
+        <defs><pattern id="minorGrid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" class="grid-line"/></pattern><pattern id="majorGrid" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#minorGrid)"/><path d="M 100 0 L 0 0 0 100" class="grid-major"/></pattern></defs>
+        <rect width="1000" height="650" fill="url(#majorGrid)" id="gridBackground"/>
+        <g id="drawingLayer"></g>
+        <g id="northArrow" transform="translate(930 72)"><path d="M0 24 L0 -16 M-9 -3 L0 -16 L9 -3" class="north-arrow"/><text x="0" y="-27" class="north-text" text-anchor="middle">N</text></g>
+        <text x="22" y="625" class="canvas-foot">RAFIQ DIGITAL SURVEY CAD • DRAWING UNITS: METRE</text>
+      </svg>
+      <div class="canvas-badge">2D CAD <span>•</span> LOCAL GRID</div>
+    </div>
+    <div class="metrics">
+      <article class="metric"><span>ক্ষেত্রফল</span><strong id="areaM2">0.00 m²</strong><small id="areaSqft">0.00 বর্গফুট</small></article>
+      <article class="metric"><span>শতক / ডেসিমেল</span><strong id="areaDecimal">0.000</strong><small>১ শতক ≈ 40.4686 m²</small></article>
+      <article class="metric"><span>পরিসীমা</span><strong id="perimeter">0.00 m</strong><small>বন্ধ সীমানা হলে গণনা</small></article>
+      <article class="metric"><span>বাহু</span><strong id="sideCount">0</strong><small>সংরক্ষিত পয়েন্ট</small></article>
+    </div>
+    <section class="table-card">
+      <div class="table-head"><div><h2>পয়েন্ট ও বাহুর মাপ</h2><p>পয়েন্টে ক্লিক করলে নাম/কোঅর্ডিনেট দেখুন</p></div><span id="closureStatus" class="pill">সীমানা খোলা</span></div>
+      <div class="table-scroll"><table><thead><tr><th>#</th><th>নাম</th><th>X (m)</th><th>Y (m)</th><th>Lat</th><th>Lon</th><th>পরের পয়েন্টের দূরত্ব</th><th></th></tr></thead><tbody id="pointsBody"><tr><td colspan="8" class="empty">এখনো কোনো পয়েন্ট নেই। বাম পাশ থেকে পয়েন্ট যোগ করুন।</td></tr></tbody></table></div>
+    </section>
+    <p class="disclaimer">গুরুত্বপূর্ণ: ফোনের সাধারণ GPS-এর নির্ভুলতা পরিবেশভেদে কয়েক মিটার বা তার বেশি ভুল হতে পারে। এই সফটওয়্যার প্রাথমিক মাপ ও ড্রাফটিংয়ের জন্য; আইনগত সীমানা নির্ধারণে অনুমোদিত জরিপ/সরকারি রেকর্ড যাচাই করুন।</p>
+  </section>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>

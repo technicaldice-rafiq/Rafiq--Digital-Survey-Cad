@@ -1,0 +1,11 @@
+{
+  "name": "Rafiq Digital Survey CAD",
+  "short_name": "Rafiq Survey CAD",
+  "description": "Land surveying and CAD drafting for Bangladesh",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fa",
+  "theme_color": "#102a43",
+  "icons": []
+}
