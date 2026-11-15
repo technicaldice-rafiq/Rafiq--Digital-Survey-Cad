@@ -1,0 +1,486 @@
+
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#101827">
+<title>Rafiq Land Survey Pro CAD</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#101827;color:#fff;overflow:hidden}
+header{height:54px;background:#172337;display:flex;align-items:center;justify-content:space-between;padding:0 12px}
+header b{font-size:15px;color:#5ee0b0}
+header span{font-size:11px;color:#b7c6d9}
+.toolbar{display:flex;gap:6px;padding:8px;background:#1b293d;overflow-x:auto}
+button,select,input{font-size:13px;border:1px solid #43536b;border-radius:7px;padding:10px;background:#25364c;color:white;white-space:nowrap}
+button:active{background:#16865f}
+button.active{background:#087c5c;border-color:#39d9a1}
+button.danger{background:#713b40}
+#canvasWrap{position:relative;height:calc(100dvh - 245px);min-height:250px;background:#0d1725;overflow:hidden}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+#info{position:absolute;left:8px;top:8px;background:#15263bdc;padding:8px;border-radius:7px;font-size:12px;pointer-events:none;line-height:1.7}
+#help{position:absolute;right:8px;bottom:8px;background:#15263bdc;padding:7px;border-radius:6px;font-size:11px}
+.panel{background:#172337;padding:9px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.stat{background:#24354b;border-radius:7px;padding:8px;text-align:center}
+.stat small{display:block;color:#aebdd0;font-size:11px}
+.stat strong{display:block;color:#5ee0b0;margin-top:5px;font-size:14px}
+.bottom{background:#172337;padding:7px;display:flex;gap:6px;overflow-x:auto}
+.bottom button{flex:1}
+#message{font-size:11px;color:#b6c8d9;padding:5px 10px;background:#101827}
+#scale{width:65px}
+@media(min-width:700px){
+#canvasWrap{height:calc(100dvh - 220px)}
+}
+</style>
+</head>
+<body>
+
+<header>
+<b>📐 RAFIQ LAND SURVEY PRO CAD</b>
+<span id="status">READY | OFFLINE</span>
+</header>
+
+<div class="toolbar">
+<button id="drawBtn" class="active" onclick="setMode('draw')">✏️ Draw</button>
+<button onclick="closePolygon()">✔ Finish</button>
+<button onclick="undo()">↶ Undo</button>
+<button onclick="redo()">↷ Redo</button>
+<button onclick="setMode('pan')">✋ Move</button>
+<button onclick="setMode('3d')">▱ 3D View</button>
+<button class="danger" onclick="clearDrawing()">Clear</button>
+</div>
+
+<div class="toolbar">
+<button onclick="zoom(1.25)">＋ Zoom</button>
+<button onclick="zoom(.8)">－ Zoom</button>
+<button onclick="resetView()">Fit View</button>
+<button onclick="gps()">📍 GPS</button>
+<select id="unit" onchange="updateStats()">
+<option value="m">Meter</option>
+<option value="ft">Feet</option>
+</select>
+<input id="scale" type="number" value="20" min="1" max="1000" title="Pixels per meter">
+<button onclick="setScale()">Set Scale</button>
+</div>
+
+<div id="canvasWrap">
+<canvas id="cad"></canvas>
+<div id="info">
+<div>MODE: <b id="modeText">DRAW</b></div>
+<div>Points: <b id="pointCount">0</b></div>
+<div>Zoom: <b id="zoomText">100%</b></div>
+<div id="coord">X: 0 | Y: 0</div>
+</div>
+<div id="help">আঙুল/মাউস দিয়ে পয়েন্ট দিন</div>
+</div>
+
+<div class="panel">
+<div class="stat"><small>AREA (শতক)</small><strong id="decimal">0.000</strong></div>
+<div class="stat"><small>AREA (বর্গফুট)</small><strong id="sqft">0.00</strong></div>
+<div class="stat"><small>AREA (বর্গমিটার)</small><strong id="sqm">0.00</strong></div>
+<div class="stat"><small>AREA (একর)</small><strong id="acre">0.0000</strong></div>
+<div class="stat"><small>PERIMETER</small><strong id="perimeter">0.00 m</strong></div>
+<div class="stat"><small>POINTS</small><strong id="points">0</strong></div>
+</div>
+
+<div class="bottom">
+<button onclick="exportDXF()">DXF Export</button>
+<button onclick="exportSVG()">SVG Export</button>
+<button onclick="exportJSON()">Save Project</button>
+<button onclick="document.getElementById('file').click()">Open Project</button>
+<button onclick="exportCSV()">CSV Export</button>
+<input type="file" id="file" accept=".json" hidden onchange="openProject(event)">
+</div>
+<div id="message">Rafiq Land Survey CAD | Project autosave enabled</div>
+
+<script>
+const canvas=document.getElementById('cad');
+const ctx=canvas.getContext('2d');
+
+let points=[];
+let polygons=[];
+let redoStack=[];
+let mode='draw';
+let zoomLevel=1;
+let panX=0,panY=0;
+let pixelsPerMeter=20;
+let current=[];
+let view3d=false;
+let drawing=false;
+let lastPointer=null;
+let gpsPoints=[];
+
+function resize(){
+ const r=canvas.getBoundingClientRect();
+ const dpr=window.devicePixelRatio||1;
+ canvas.width=r.width*dpr;
+ canvas.height=r.height*dpr;
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ render();
+}
+window.addEventListener('resize',resize);
+
+function message(s){
+ document.getElementById('message').textContent=s;
+}
+
+function setMode(m){
+ mode=m;
+ view3d=m==='3d';
+ document.getElementById('modeText').textContent=m.toUpperCase();
+ document.querySelectorAll('#drawBtn').forEach(b=>b.classList.toggle('active',m==='draw'));
+ render();
+}
+
+function worldToScreen(p){
+ const w=canvas.clientWidth,h=canvas.clientHeight;
+ return {
+ x:w/2+panX+p.x*pixelsPerMeter*zoomLevel,
+ y:h/2+panY-p.y*pixelsPerMeter*zoomLevel
+ };
+}
+
+function screenToWorld(x,y){
+ const w=canvas.clientWidth,h=canvas.clientHeight;
+ return {
+ x:(x-w/2-panX)/(pixelsPerMeter*zoomLevel),
+ y:-(y-h/2-panY)/(pixelsPerMeter*zoomLevel)
+ };
+}
+
+function render(){
+ const w=canvas.clientWidth,h=canvas.clientHeight;
+ if(!w||!h)return;
+ ctx.clearRect(0,0,w,h);
+ ctx.fillStyle='#0d1725';
+ ctx.fillRect(0,0,w,h);
+
+ if(view3d){
+  render3D();
+  return;
+ }
+
+ // Grid
+ const step=pixelsPerMeter*zoomLevel;
+ if(step>5){
+  const grid=step;
+  ctx.strokeStyle='#243448';
+  ctx.lineWidth=.7;
+  for(let x=((w/2+panX)%grid);x<w;x+=grid){
+   ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
+  }
+  for(let y=((h/2+panY)%grid);y<h;y+=grid){
+   ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
+  }
+ }
+
+ // Axes
+ ctx.strokeStyle='#60738b';
+ ctx.lineWidth=1;
+ ctx.beginPath();
+ ctx.moveTo(0,h/2+panY);ctx.lineTo(w,h/2+panY);
+ ctx.moveTo(w/2+panX,0);ctx.lineTo(w/2+panX,h);
+ ctx.stroke();
+
+ polygons.forEach(poly=>drawPoly(poly,true));
+ if(current.length)drawPoly(current,false);
+
+ document.getElementById('zoomText').textContent=Math.round(zoomLevel*100)+'%';
+}
+
+function drawPoly(poly,closed){
+ if(!poly.length)return;
+ ctx.beginPath();
+ poly.forEach((p,i)=>{
+  const s=worldToScreen(p);
+  if(i===0)ctx.moveTo(s.x,s.y);
+  else ctx.lineTo(s.x,s.y);
+ });
+ if(closed)ctx.closePath();
+ if(closed){
+  ctx.fillStyle='rgba(16,190,130,.18)';
+  ctx.fill();
+ }
+ ctx.strokeStyle=closed?'#35e2a2':'#ffc65c';
+ ctx.lineWidth=2;
+ ctx.stroke();
+
+ poly.forEach((p,i)=>{
+  const s=worldToScreen(p);
+  ctx.beginPath();
+  ctx.arc(s.x,s.y,4,0,Math.PI*2);
+  ctx.fillStyle='#fff';
+  ctx.fill();
+  ctx.strokeStyle='#00dca0';
+  ctx.stroke();
+  ctx.fillStyle='#d8e8f5';
+  ctx.font='10px Arial';
+  ctx.fillText(String(i+1),s.x+6,s.y-6);
+ });
+}
+
+function render3D(){
+ const w=canvas.clientWidth,h=canvas.clientHeight;
+ ctx.fillStyle='#0d1725';ctx.fillRect(0,0,w,h);
+ polygons.forEach(poly=>{
+  if(poly.length<3)return;
+  let projected=poly.map(p=>({
+   x:w/2+panX+(p.x-p.y*.45)*pixelsPerMeter*zoomLevel,
+   y:h*.55+panY+(p.x+p.y*.45)*pixelsPerMeter*zoomLevel*.35
+  }));
+  ctx.beginPath();
+  projected.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+  ctx.closePath();
+  ctx.fillStyle='rgba(20,200,140,.25)';
+  ctx.fill();
+  ctx.strokeStyle='#43e8af';ctx.lineWidth=2;ctx.stroke();
+  projected.forEach(p=>{
+   ctx.beginPath();ctx.arc(p.x,p.y,4,0,7);
+   ctx.fillStyle='white';ctx.fill();
+  });
+ });
+ ctx.fillStyle='white';ctx.font='13px Arial';
+ ctx.fillText('3D ISOMETRIC PREVIEW',12,h-15);
+}
+
+function addPoint(x,y){
+ const p=screenToWorld(x,y);
+ current.push(p);
+ redoStack=[];
+ render();
+ updateStats();
+ saveLocal();
+ message('Point added: '+current.length);
+}
+
+function closePolygon(){
+ if(current.length<3){
+  message('কমপক্ষে ৩টি পয়েন্ট প্রয়োজন');
+  return;
+ }
+ polygons.push([...current]);
+ current=[];
+ render();
+ updateStats();
+ saveLocal();
+ message('জমির সীমানা সম্পন্ন হয়েছে');
+}
+
+function undo(){
+ if(current.length)redoStack.push({type:'current',p:current.pop()});
+ else if(polygons.length)redoStack.push({type:'polygon',p:polygons.pop()});
+ render();updateStats();saveLocal();
+}
+
+function redo(){
+ const a=redoStack.pop();
+ if(!a)return;
+ if(a.type==='current')current.push(a.p);
+ else polygons.push(a.p);
+ render();updateStats();saveLocal();
+}
+
+function clearDrawing(){
+ if(!confirm('সব নকশা মুছে ফেলবেন?'))return;
+ polygons=[];current=[];redoStack=[];
+ render();updateStats();saveLocal();
+}
+
+function zoom(f){
+ zoomLevel=Math.max(.15,Math.min(10,zoomLevel*f));
+ render();
+}
+
+function resetView(){
+ zoomLevel=1;panX=0;panY=0;render();
+}
+
+function setScale(){
+ const v=Number(document.getElementById('scale').value);
+ if(v>0&&v<=1000){
+  pixelsPerMeter=v;
+  render();
+  message('Scale updated: '+v+' pixels per meter');
+ }
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ canvas.setPointerCapture(e.pointerId);
+ lastPointer={x:e.offsetX,y:e.offsetY};
+ drawing=true;
+});
+
+canvas.addEventListener('pointermove',e=>{
+ if(!drawing)return;
+ const dx=e.offsetX-lastPointer.x;
+ const dy=e.offsetY-lastPointer.y;
+
+ if(mode==='pan'||e.buttons===4){
+  panX+=dx;panY+=dy;
+  lastPointer={x:e.offsetX,y:e.offsetY};
+  render();
+ }else{
+  document.getElementById('coord').textContent=
+  'X: '+screenToWorld(e.offsetX,e.offsetY).x.toFixed(2)+
+  ' | Y: '+screenToWorld(e.offsetX,e.offsetY).y.toFixed(2);
+ }
+});
+
+canvas.addEventListener('pointerup',e=>{
+ if(!drawing)return;
+ drawing=false;
+ if(mode==='draw'){
+  const dx=e.offsetX-lastPointer.x;
+  const dy=e.offsetY-lastPointer.y;
+  if(Math.hypot(dx,dy)<8)addPoint(e.offsetX,e.offsetY);
+ }
+});
+
+function polygonArea(poly){
+ let a=0;
+ for(let i=0;i<poly.length;i++){
+  const j=(i+1)%poly.length;
+  a+=poly[i].x*poly[j].y-poly[j].x*poly[i].y;
+ }
+ return Math.abs(a/2);
+}
+
+function polygonPerimeter(poly){
+ let d=0;
+ for(let i=0;i<poly.length;i++){
+  const j=(i+1)%poly.length;
+  d+=Math.hypot(poly[i].x-poly[j].x,poly[i].y-poly[j].y);
+ }
+ return d;
+}
+
+function updateStats(){
+ let area=polygons.reduce((s,p)=>s+polygonArea(p),0);
+ let perimeter=polygons.reduce((s,p)=>s+polygonPerimeter(p),0);
+ let unit=document.getElementById('unit').value;
+ let factor=unit==='ft'?3.28084:1;
+ let sqm=area;
+ let sqft=area*10.7639104;
+ let decimal=area/40.4685642;
+ document.getElementById('decimal').textContent=decimal.toFixed(3);
+ document.getElementById('sqft').textContent=sqft.toFixed(2);
+ document.getElementById('sqm').textContent=sqm.toFixed(2);
+ document.getElementById('acre').textContent=(area/4046.85642).toFixed(4);
+ document.getElementById('perimeter').textContent=(perimeter*factor).toFixed(2)+' '+(unit==='ft'?'ft':'m');
+ document.getElementById('points').textContent=polygons.reduce((s,p)=>s+p.length,0)+current.length;
+ document.getElementById('pointCount').textContent=polygons.reduce((s,p)=>s+p.length,0)+current.length;
+}
+
+function saveLocal(){
+ try{
+  localStorage.setItem('rafiq_land_survey_v2',JSON.stringify({
+   polygons,current,pixelsPerMeter,zoomLevel,panX,panY
+  }));
+ }catch(e){message('Autosave unavailable');}
+}
+
+function loadLocal(){
+ try{
+  const d=JSON.parse(localStorage.getItem('rafiq_land_survey_v2'));
+  if(d){
+   polygons=d.polygons||[];
+   current=d.current||[];
+   pixelsPerMeter=d.pixelsPerMeter||20;
+   zoomLevel=d.zoomLevel||1;
+   panX=d.panX||0;panY=d.panY||0;
+  }
+ }catch(e){}
+}
+
+function download(name,content,type){
+ const blob=new Blob([content],{type});
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download=name;
+ a.click();
+ setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+
+function exportJSON(){
+ download('Rafiq_Survey_Project.json',JSON.stringify({
+  name:'Rafiq Land Survey Pro CAD',
+  polygons,current,pixelsPerMeter,zoomLevel,panX,panY
+ },null,2),'application/json');
+}
+
+function openProject(e){
+ const f=e.target.files[0];
+ if(!f)return;
+ const r=new FileReader();
+ r.onload=()=>{
+  try{
+   const d=JSON.parse(r.result);
+   polygons=d.polygons||[];
+   current=d.current||[];
+   pixelsPerMeter=d.pixelsPerMeter||20;
+   zoomLevel=d.zoomLevel||1;
+   panX=d.panX||0;panY=d.panY||0;
+   render();updateStats();saveLocal();
+   message('Project opened successfully');
+  }catch(err){message('Invalid project file');}
+ };
+ r.readAsText(f);
+ e.target.value='';
+}
+
+function exportDXF(){
+ let s='0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
+ polygons.forEach(poly=>{
+  s+='0\nLWPOLYLINE\n8\nLAND_BOUNDARY\n90\n'+poly.length+'\n70\n1\n';
+  poly.forEach(p=>{
+   s+='10\n'+p.x+'\n20\n'+p.y+'\n';
+  });
+ });
+ s+='0\nENDSEC\n0\nEOF\n';
+ download('Rafiq_Land_Survey.dxf',s,'application/dxf');
+ message('DXF exported in meter-based drawing coordinates');
+}
+
+function exportSVG(){
+ let all=polygons.flat();
+ if(!all.length)return message('No completed polygon');
+ let minX=Math.min(...all.map(p=>p.x));
+ let maxX=Math.max(...all.map(p=>p.x));
+ let minY=Math.min(...all.map(p=>p.y));
+ let maxY=Math.max(...all.map(p=>p.y));
+ let shapes=polygons.map(poly=>{
+  let pts=poly.map(p=>`${(p.x-minX)*50},${(maxY-p.y)*50}`).join(' ');
+  return `<polygon points="${pts}" fill="#b2ead8" stroke="#087c5c" stroke-width="2"/>`;
+ }).join('\n');
+ let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${(maxX-minX)*50}" height="${(maxY-minY)*50}">${shapes}</svg>`;
+ download('Rafiq_Survey.svg',svg,'image/svg+xml');
+}
+
+function exportCSV(){
+ let rows=['Polygon,Point,X_m,Y_m'];
+ polygons.forEach((poly,i)=>poly.forEach((p,j)=>{
+  rows.push(`${i+1},${j+1},${p.x},${p.y}`);
+ }));
+ download('Rafiq_Survey_Points.csv',rows.join('\n'),'text/csv');
+}
+
+function gps(){
+ if(!navigator.geolocation)return message('GPS not supported');
+ navigator.geolocation.getCurrentPosition(pos=>{
+  const lat=pos.coords.latitude;
+  const lon=pos.coords.longitude;
+  message('GPS: '+lat.toFixed(7)+', '+lon.toFixed(7));
+  document.getElementById('coord').textContent='GPS: '+lat.toFixed(6)+', '+lon.toFixed(6);
+ },err=>message('GPS permission/location unavailable'),{enableHighAccuracy:true});
+}
+
+loadLocal();
+resize();
+updateStats();
+setInterval(saveLocal,5000);
+window.addEventListener('online',()=>document.getElementById('status').textContent='ONLINE');
+window.addEventListener('offline',()=>document.getElementById('status').textContent='OFFLINE');
+</script>
+</body>
+</html>
